@@ -1,3 +1,5 @@
+import ssl
+
 import aiohttp
 import asyncio
 from selectolax.parser import HTMLParser
@@ -8,7 +10,6 @@ import openpyxl
 from dotenv import load_dotenv, find_dotenv
 from telegram_bot_logger import TgLogger
 from pathlib import Path
-
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -21,6 +22,8 @@ logger = TgLogger(
     token=os.environ.get('LOGGER_BOT_TOKEN'),
     chats_ids_filename=CHATS_IDS,
 )
+
+
 async def get_response(session, url, retries=3):
     """Получение ответа от сервера с обработкой ошибок"""
     for attempt in range(retries):
@@ -28,7 +31,8 @@ async def get_response(session, url, retries=3):
             async with session.get(url, timeout=50) as response:
                 response.raise_for_status()
                 return await response.text()
-        except (aiohttp.ClientTimeout, aiohttp.ClientError) as e:
+        # except (aiohttp.ClientTimeout, aiohttp.ClientError) as e: ClientTimeout - класс не является исключением!
+        except aiohttp.ClientError as e:
             print(f"Network error occurred: {e}. Attempt {attempt + 1} of {retries}. Retrying...")
             await asyncio.sleep(2)
         except asyncio.TimeoutError:
@@ -46,7 +50,7 @@ async def parse_categories(session):
     if response_text is not None:
         parser = HTMLParser(response_text)
         cat_links = [f'https://www.hozmaster.ru{categories.attributes.get("href")}' for categories in
-                 parser.css('div a.cat2level')]
+                     parser.css('div a.cat2level')]
         for elems in parser.css("div.cat1level a"):
             cat_links.append(f'https://www.hozmaster.ru{elems.attributes.get("href")}')
 
@@ -79,8 +83,6 @@ async def parse_goods(session):
     return ref_list
 
 
-
-
 async def parse_products(session):
     """Парсинг информации о товарах"""
 
@@ -96,7 +98,7 @@ async def parse_products(session):
             parser = HTMLParser(response_text)
 
             for eldata in parser.css("div.productprice"):
-                price_list.append(eldata.text().split(" ")[0].split("\t")[-1].replace(".",","))
+                price_list.append(eldata.text().split(" ")[0].split("\t")[-1].replace(".", ","))
                 break
 
             for element in parser.css("div.productcode"):
@@ -105,12 +107,16 @@ async def parse_products(session):
 
             for categ in parser.css("div.production td h2"):
                 naming.append(categ.text())
-    return supply_path, article_list,naming, price_list
+    return supply_path, article_list, naming, price_list
 
 
 async def main():
     start = time.time()
-    async with aiohttp.ClientSession() as session:
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl_context=ssl_context)) as session:
         product_links, article_list, name_list, price_list = await parse_products(session)
 
         new_slovar = {
@@ -124,8 +130,7 @@ async def main():
         }
 
         df = pd.DataFrame(new_slovar)
-        file_path = "\\tg-storage01\\Аналитический отдел\\Проекты\\Python\\Парсинг ОПТ\\Выгрузки\\Хозмастер\\Выгрузка цен.xlsx"
-
+        file_path = "\\\\tg-storage01\\Аналитический отдел\\Проекты\\Python\\Парсинг ОПТ\\Выгрузки\\Хозмастер\\Выгрузка цен.xlsx"
 
         df.to_excel(file_path, sheet_name="Лист 1", index=False)
 
@@ -135,4 +140,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.error(e)
+        raise e
