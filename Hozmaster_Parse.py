@@ -132,7 +132,7 @@ async def main():
         df = pd.DataFrame(new_slovar)
         file_path = "\\\\tg-storage01\\Аналитический отдел\\Проекты\\Python\\Парсинг ОПТ\\Выгрузки\\Хозмастер\\Выгрузка цен.xlsx"
 
-        df.to_excel(file_path, sheet_name="Лист 1", index=False)
+        df.to_excel(file_path, sheet_name="Данные", index=False)
 
         print("Парсинг выполнен")
     end = time.time()
