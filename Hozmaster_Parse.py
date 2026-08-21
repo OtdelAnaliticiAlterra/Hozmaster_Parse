@@ -1,3 +1,4 @@
+import logging
 import ssl
 
 import aiohttp
@@ -6,21 +7,24 @@ from selectolax.parser import HTMLParser
 import time
 import pandas as pd
 import os
-import openpyxl
 from dotenv import load_dotenv, find_dotenv
-from telegram_bot_logger import TgLogger
+from max_logger import MaxLogger
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 
 load_dotenv(find_dotenv())
 
-CHATS_IDS = '\\\\TG-Storage01\\Аналитический отдел\\Проекты\\Python\\chats_ids.csv'
 
-logger = TgLogger(
+loger_token = os.environ.get('MAX_LOGGER_TOKEN')
+recipient_ids = tuple(int(x.strip()) for x in os.environ["MAX_LOGGER_RECIPIENT_IDS"].split(","))
+
+logger = MaxLogger(
     name='Парсинг_Хозмастер',
-    token=os.environ.get('LOGGER_BOT_TOKEN'),
-    chats_ids_filename=CHATS_IDS,
+    project_file=__file__,
+    token=loger_token,
+    recipient_ids=recipient_ids,
+    level=logging.DEBUG,
 )
 
 
@@ -141,6 +145,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
+        raise ValueError('ТЕСТ Виталий всё нажал и всё сломалось')
         asyncio.run(main())
     except Exception as e:
         logger.error(e)
