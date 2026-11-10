@@ -87,31 +87,45 @@ async def parse_goods(session):
     return ref_list
 
 
+def parse_product_page(html, url):
+    """Разбор страницы товара в одну строку выгрузки; отсутствующие поля = None"""
+    parser = HTMLParser(html)
+
+    price = None
+    price_node = parser.css_first("div.productprice")
+    if price_node is not None:
+        price = price_node.text().split(" ")[0].split("\t")[-1].replace(".", ",")
+        if price in ("", "0,00"):
+            price = None
+
+    article = None
+    code_node = parser.css_first("div.productcode")
+    if code_node is not None:
+        parts = code_node.text().split(" ")
+        if len(parts) > 1:
+            article = parts[1].split("\t")[0] or None
+
+    name_node = parser.css_first("div.production td h2")
+    name = name_node.text() if name_node is not None else ""
+    name = name if name.strip() else None
+
+    return {"Артикул": article, "Наименование": name, "Цена": price, "Ссылка": url}
+
+
 async def parse_products(session):
     """Парсинг информации о товарах"""
 
     supply_path = await parse_goods(session)
     supply_path = pd.Series(supply_path).drop_duplicates().tolist()
-    article_list = []
-    naming = []
-    price_list = []
+    rows = []
     for elem in supply_path:
         print(f"elem = {elem}")
         response_text = await get_response(session, elem)
-        if response_text is not None:
-            parser = HTMLParser(response_text)
-
-            for eldata in parser.css("div.productprice"):
-                price_list.append(eldata.text().split(" ")[0].split("\t")[-1].replace(".", ","))
-                break
-
-            for element in parser.css("div.productcode"):
-                article_list.append(element.text().split(" ")[1].split("\t")[0])
-                break
-
-            for categ in parser.css("div.production td h2"):
-                naming.append(categ.text())
-    return supply_path, article_list, naming, price_list
+        if response_text is None:
+            rows.append({"Артикул": None, "Наименование": None, "Цена": None, "Ссылка": elem})
+        else:
+            rows.append(parse_product_page(response_text, elem))
+    return rows
 
 
 async def main():
@@ -120,20 +134,23 @@ async def main():
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
-    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl_context=ssl_context)) as session:
-        product_links, article_list, name_list, price_list = await parse_products(session)
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
+        rows = await parse_products(session)
 
-        new_slovar = {
-            "Код конкурента": "01-01046949",
-            "Конкурент": "Хозмастер",
-            "Артикул": article_list,
-            "Наименование": name_list,
-            "Вид цены": "Цена Хозмастер Барнаул",
-            "Цена": price_list,
-            "Ссылка": product_links
-        }
+        df = pd.DataFrame(rows, columns=["Артикул", "Наименование", "Цена", "Ссылка"])
+        incomplete = df[df[["Артикул", "Наименование", "Цена"]].isna().any(axis=1)]
+        if not incomplete.empty:
+            print(f"Пропущено товаров без цены/артикула/наименования: {len(incomplete)}")
+            print(incomplete.to_string())
+        df = df.drop(incomplete.index)
 
-        df = pd.DataFrame(new_slovar)
+        if df.empty:
+            raise ValueError("Не собрано ни одного товара, файл выгрузки не перезаписан")
+
+        df.insert(0, "Код конкурента", "01-01046949")
+        df.insert(1, "Конкурент", "Хозмастер")
+        df.insert(4, "Вид цены", "Цена Хозмастер Барнаул")
+
         file_path = "\\\\tg-storage01\\Аналитический отдел\\Проекты\\Python\\Парсинг ОПТ\\Выгрузки\\Хозмастер\\Выгрузка цен.xlsx"
 
         df.to_excel(file_path, sheet_name="Данные", index=False)
@@ -145,7 +162,6 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        raise ValueError('ТЕСТ Виталий всё нажал и всё сломалось')
         asyncio.run(main())
     except Exception as e:
         logger.error(e)
